@@ -1,11 +1,12 @@
 import streamlit as st
 import requests
 import time
+import uuid
 
 st.set_page_config(page_title="Kling Motion Control", layout="centered")
 
 st.title("🎬 Kling v2.6 Motion Control")
-st.caption("Upload gambar + video motion, generate pakai Magnific API")
+st.caption("Deploy di Streamlit Cloud - API key manual input")
 
 # ===== API KEY INPUT DI DEPAN =====
 with st.container(border=True):
@@ -14,9 +15,10 @@ with st.container(border=True):
         "Masukkan API Key",
         type="password",
         placeholder="sk-magnific-xxx",
-        help="API key tidak disimpan. Masukkan ulang tiap buka halaman."
+        help="Tidak disimpan sama sekali",
+        autocomplete="off"
     )
-    st.warning("⚠️ API Key tidak disimpan. Wajib isi ulang setiap reload.", icon="⚠️")
+    st.caption("⚠️ API key gak disimpan. Isi ulang tiap refresh halaman.")
 
 if not api_key:
     st.stop()
@@ -29,31 +31,29 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("🖼️ Image Karakter")
     image_file = st.file_uploader(
-        "Drag & drop atau pilih gambar",
+        "PNG, JPG, WEBP - Max 10MB",
         type=["png", "jpg", "jpeg", "webp"],
         key="image"
     )
     if image_file:
-        st.image(image_file, caption="Preview", use_container_width=True)
+        st.image(image_file, use_container_width=True)
+        st.caption(f"Size: {image_file.size / 1024 / 1024:.2f} MB")
 
 with col2:
     st.subheader("🎥 Video Motion")
     video_file = st.file_uploader(
-        "Drag & drop atau pilih video",
+        "MP4, MOV - Max 50MB",
         type=["mp4", "mov"],
         key="video"
     )
     if video_file:
         st.video(video_file)
+        st.caption(f"Size: {video_file.size / 1024 / 1024:.2f} MB")
 
 st.divider()
 
 # ===== PROMPT & SETTINGS =====
-prompt = st.text_area(
-    "Prompt *",
-    placeholder="karakter menari di pantai, cinematic lighting, 4k",
-    height=100
-)
+prompt = st.text_area("Prompt *", placeholder="karakter menari di pantai, cinematic lighting, 4k", height=100)
 
 col3, col4 = st.columns(2)
 with col3:
@@ -65,60 +65,58 @@ webhook_url = st.text_input("Webhook URL (opsional)", placeholder="https://webho
 
 st.divider()
 
-# ===== UPLOAD KE 0x0.st - LEBIH STABIL =====
-def upload_to_host(file_data, filename):
-    """Upload ke 0x0.st, fallback ke catbox.moe kalau gagal"""
-    # Coba 0x0.st dulu
+# ===== UPLOAD KE FILEBIN.NET - PALING STABIL =====
+def upload_to_filebin(file_data, filename):
+    """Upload ke filebin.net, auto delete 7 hari"""
     try:
-        files = {'file': (filename, file_data)}
-        res = requests.post('https://0x0.st', files=files, timeout=60)
+        # Generate random bin
+        bin_name = str(uuid.uuid4())[:8]
+        url = f"https://filebin.net/{bin_name}/{filename}"
+        
+        res = requests.post(
+            url,
+            data=file_data,
+            headers={'Content-Type': 'application/octet-stream'},
+            timeout=120
+        )
         res.raise_for_status()
-        url = res.text.strip()
-        if url.startswith('http'):
-            return url
+        return url
     except Exception as e:
-        st.warning(f"0x0.st gagal: {e}, coba catbox.moe...")
-    
-    # Fallback ke catbox.moe
-    try:
-        files = {'fileToUpload': (filename, file_data)}
-        data = {'reqtype': 'fileupload'}
-        res = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=60)
-        res.raise_for_status()
-        url = res.text.strip()
-        if url.startswith('http'):
-            return url
-    except Exception as e:
-        st.error(f"Catbox.moe juga gagal: {e}")
+        st.error(f"Upload error: {e}")
         return None
-    
-    return None
 
 # ===== GENERATE =====
 if st.button("🚀 Generate Video", type="primary", use_container_width=True):
     if not image_file or not video_file or not prompt:
         st.error("Upload gambar, video, dan isi prompt dulu!")
         st.stop()
+    
+    if image_file.size > 10 * 1024:
+        st.error("Gambar max 10MB. Compress dulu.")
+        st.stop()
+    
+    if video_file.size > 50 * 1024:
+        st.error("Video max 50MB. Compress dulu.")
+        st.stop()
 
     with st.status("Processing...", expanded=True) as status:
-        st.write("📤 Uploading image...")
-        image_url = upload_to_host(image_file.getvalue(), image_file.name)
+        st.write("📤 Uploading image ke filebin.net...")
+        image_url = upload_to_filebin(image_file.getvalue(), image_file.name)
         
         if not image_url:
-            st.error("Gagal upload image. Coba lagi atau compress file-nya.")
+            st.error("Gagal upload image")
             st.stop()
+        st.write(f"✅ Image uploaded")
         
-        st.write(f"✅ Image URL: {image_url}")
-        
-        st.write("📤 Uploading video...")
-        video_url = upload_to_host(video_file.getvalue(), video_file.name)
+        st.write("📤 Uploading video ke filebin.net...")
+        video_url = upload_to_filebin(video_file.getvalue(), video_file.name)
         
         if not video_url:
-            st.error("Gagal upload video. Coba lagi atau compress file-nya.")
+            st.error("Gagal upload video")
             st.stop()
+        st.write(f"✅ Video uploaded")
         
-        st.write(f"✅ Video URL: {video_url}")
-        st.write("🎯 Mengirim ke Magnific API...")
+        st.write("🎯 Kirim ke Magnific API...")
         
         payload = {
             "image_url": image_url,
@@ -133,10 +131,7 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
         try:
             res = requests.post(
                 "https://api.magnific.com/v1/ai/video/kling-v2-6-motion-control-std",
-                headers={
-                    "x-magnific-api-key": api_key,
-                    "Content-Type": "application/json"
-                },
+                headers={"x-magnific-api-key": api_key, "Content-Type": "application/json"},
                 json=payload,
                 timeout=30
             )
@@ -149,15 +144,14 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
                 st.json(data)
                 st.stop()
             
-            st.write(f"✅ Job dibuat: `{job_id}`")
-            st.write("⏳ Menunggu video selesai diproses...")
+            st.write(f"✅ Job ID: `{job_id}`")
+            st.write("⏳ Tunggu proses render...")
             
-            # Polling status
             status_url = f"https://api.magnific.com/v1/ai/video/status/{job_id}"
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            for i in range(120):  # Max 10 menit
+            for i in range(120):
                 time.sleep(5)
                 status_res = requests.get(status_url, headers={"x-magnific-api-key": api_key})
                 status_data = status_res.json()
@@ -172,22 +166,22 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
                     st.success("Video berhasil dibuat!")
                     st.video(status_data["video_url"])
                     st.link_button("⬇️ Download Video", status_data["video_url"])
+                    st.info("💡 File di filebin.net auto hapus 7 hari. Download segera.")
                     break
                 elif current_status == "failed":
                     status.update(label="❌ Gagal", state="error")
-                    st.error(f"Job gagal: {status_data.get('error', 'Unknown')}")
+                    st.error(f"Error: {status_data.get('error', 'Unknown')}")
                     break
             else:
                 status.update(label="⏱️ Timeout", state="error")
-                st.warning("Timeout. Cek status manual pake job_id di atas.")
+                st.warning(f"Timeout. Cek manual: job_id `{job_id}`")
                 
         except requests.exceptions.RequestException as e:
             status.update(label="❌ Error", state="error")
-            st.error(f"Request error: {e}")
+            st.error(f"API Error: {e}")
             if hasattr(e, 'response') and e.response is not None:
                 st.code(e.response.text)
 
-# ===== REQUIREMENTS.TXT =====
 st.divider()
-with st.expander("📦 File requirements.txt"):
+with st.expander("📦 requirements.txt"):
     st.code("streamlit\nrequests", language="text")
