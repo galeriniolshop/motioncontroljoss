@@ -1,8 +1,6 @@
 import streamlit as st
 import requests
 import time
-import tempfile
-import os
 
 st.set_page_config(page_title="Kling Motion Control", layout="centered")
 
@@ -67,21 +65,34 @@ webhook_url = st.text_input("Webhook URL (opsional)", placeholder="https://webho
 
 st.divider()
 
-# ===== UPLOAD KE TMPFILES.ORG =====
-def upload_to_tmpfiles(file_data, filename):
-    """Upload file ke tmpfiles.org biar dapet public URL"""
+# ===== UPLOAD KE 0x0.st - LEBIH STABIL =====
+def upload_to_host(file_data, filename):
+    """Upload ke 0x0.st, fallback ke catbox.moe kalau gagal"""
+    # Coba 0x0.st dulu
     try:
         files = {'file': (filename, file_data)}
-        res = requests.post('https://tmpfiles.org/api/v1/upload', files=files, timeout=60)
+        res = requests.post('https://0x0.st', files=files, timeout=60)
         res.raise_for_status()
-        data = res.json()
-        if data['status'] == 'success':
-            # Convert ke direct download link
-            return data['data']['url'].replace('tmpfiles.org/', 'tmpfiles.org/dl/')
-        return None
+        url = res.text.strip()
+        if url.startswith('http'):
+            return url
     except Exception as e:
-        st.error(f"Upload error: {e}")
+        st.warning(f"0x0.st gagal: {e}, coba catbox.moe...")
+    
+    # Fallback ke catbox.moe
+    try:
+        files = {'fileToUpload': (filename, file_data)}
+        data = {'reqtype': 'fileupload'}
+        res = requests.post('https://catbox.moe/user/api.php', files=files, data=data, timeout=60)
+        res.raise_for_status()
+        url = res.text.strip()
+        if url.startswith('http'):
+            return url
+    except Exception as e:
+        st.error(f"Catbox.moe juga gagal: {e}")
         return None
+    
+    return None
 
 # ===== GENERATE =====
 if st.button("🚀 Generate Video", type="primary", use_container_width=True):
@@ -90,20 +101,23 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
         st.stop()
 
     with st.status("Processing...", expanded=True) as status:
-        st.write("📤 Uploading image ke server sementara...")
-        image_url = upload_to_tmpfiles(image_file.getvalue(), image_file.name)
+        st.write("📤 Uploading image...")
+        image_url = upload_to_host(image_file.getvalue(), image_file.name)
         
         if not image_url:
-            st.error("Gagal upload image")
+            st.error("Gagal upload image. Coba lagi atau compress file-nya.")
             st.stop()
         
-        st.write("📤 Uploading video ke server sementara...")
-        video_url = upload_to_tmpfiles(video_file.getvalue(), video_file.name)
+        st.write(f"✅ Image URL: {image_url}")
+        
+        st.write("📤 Uploading video...")
+        video_url = upload_to_host(video_file.getvalue(), video_file.name)
         
         if not video_url:
-            st.error("Gagal upload video")
+            st.error("Gagal upload video. Coba lagi atau compress file-nya.")
             st.stop()
         
+        st.write(f"✅ Video URL: {video_url}")
         st.write("🎯 Mengirim ke Magnific API...")
         
         payload = {
@@ -175,6 +189,5 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
 
 # ===== REQUIREMENTS.TXT =====
 st.divider()
-with st.expander("📦 File requirements.txt untuk Streamlit Cloud"):
+with st.expander("📦 File requirements.txt"):
     st.code("streamlit\nrequests", language="text")
-    st.caption("Buat file `requirements.txt` di repo kamu isi 2 baris di atas")
