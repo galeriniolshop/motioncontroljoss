@@ -6,7 +6,7 @@ import uuid
 st.set_page_config(page_title="Kling Motion Control", layout="centered")
 
 st.title("🎬 Kling v2.6 Motion Control")
-st.caption("Deploy di Streamlit Cloud - API key manual input")
+st.caption("Max Image 200MB | Deploy di Streamlit Cloud")
 
 # ===== API KEY INPUT DI DEPAN =====
 with st.container(border=True):
@@ -31,24 +31,32 @@ col1, col2 = st.columns(2)
 with col1:
     st.subheader("🖼️ Image Karakter")
     image_file = st.file_uploader(
-        "PNG, JPG, WEBP - Max 10MB",
+        "PNG, JPG, WEBP - Max 200MB",
         type=["png", "jpg", "jpeg", "webp"],
         key="image"
     )
     if image_file:
         st.image(image_file, use_container_width=True)
-        st.caption(f"Size: {image_file.size / 1024 / 1024:.2f} MB")
+        size_mb = image_file.size / 1024 / 1024
+        if size_mb > 200:
+            st.error(f"Size: {size_mb:.2f} MB - Melebihi 200MB")
+        else:
+            st.caption(f"Size: {size_mb:.2f} MB")
 
 with col2:
     st.subheader("🎥 Video Motion")
     video_file = st.file_uploader(
-        "MP4, MOV - Max 50MB",
+        "MP4, MOV - Max 200MB",
         type=["mp4", "mov"],
         key="video"
     )
     if video_file:
         st.video(video_file)
-        st.caption(f"Size: {video_file.size / 1024 / 1024:.2f} MB")
+        size_mb = video_file.size / 1024 / 1024
+        if size_mb > 200:
+            st.error(f"Size: {size_mb:.2f} MB - Melebihi 200MB")
+        else:
+            st.caption(f"Size: {size_mb:.2f} MB")
 
 st.divider()
 
@@ -65,22 +73,22 @@ webhook_url = st.text_input("Webhook URL (opsional)", placeholder="https://webho
 
 st.divider()
 
-# ===== UPLOAD KE FILEBIN.NET - PALING STABIL =====
-def upload_to_filebin(file_data, filename):
-    """Upload ke filebin.net, auto delete 7 hari"""
+# ===== UPLOAD KE TRANSFER.SH - SUPPORT 200MB+ =====
+def upload_to_transfersh(file_data, filename):
+    """Upload ke transfer.sh, support sampe 10GB, expired 14 hari"""
     try:
-        # Generate random bin
-        bin_name = str(uuid.uuid4())[:8]
-        url = f"https://filebin.net/{bin_name}/{filename}"
+        # Generate unique filename biar gak bentrok
+        unique_name = f"{uuid.uuid4().hex[:8]}_{filename}"
+        url = f"https://transfer.sh/{unique_name}"
         
-        res = requests.post(
+        res = requests.put(
             url,
             data=file_data,
-            headers={'Content-Type': 'application/octet-stream'},
-            timeout=120
+            headers={'Max-Days': '1'},  # Auto delete 1 hari
+            timeout=300  # 5 menit timeout buat file gede
         )
         res.raise_for_status()
-        return url
+        return res.text.strip()
     except Exception as e:
         st.error(f"Upload error: {e}")
         return None
@@ -91,25 +99,26 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
         st.error("Upload gambar, video, dan isi prompt dulu!")
         st.stop()
     
-    if image_file.size > 10 * 1024:
-        st.error("Gambar max 10MB. Compress dulu.")
+    # Validasi size 200MB
+    if image_file.size > 200 * 1024:
+        st.error(f"Gambar kegedean: {image_file.size / 1024:.2f}MB. Max 200MB")
         st.stop()
     
-    if video_file.size > 50 * 1024:
-        st.error("Video max 50MB. Compress dulu.")
+    if video_file.size > 200 * 1024:
+        st.error(f"Video kegedean: {video_file.size / 1024:.2f}MB. Max 200MB")
         st.stop()
 
     with st.status("Processing...", expanded=True) as status:
-        st.write("📤 Uploading image ke filebin.net...")
-        image_url = upload_to_filebin(image_file.getvalue(), image_file.name)
+        st.write(f"📤 Uploading image {image_file.size / 1024:.1f}MB ke transfer.sh...")
+        image_url = upload_to_transfersh(image_file.getvalue(), image_file.name)
         
         if not image_url:
             st.error("Gagal upload image")
             st.stop()
         st.write(f"✅ Image uploaded")
         
-        st.write("📤 Uploading video ke filebin.net...")
-        video_url = upload_to_filebin(video_file.getvalue(), video_file.name)
+        st.write(f"📤 Uploading video {video_file.size / 1024:.1f}MB ke transfer.sh...")
+        video_url = upload_to_transfersh(video_file.getvalue(), video_file.name)
         
         if not video_url:
             st.error("Gagal upload video")
@@ -151,13 +160,13 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
             progress_bar = st.progress(0)
             progress_text = st.empty()
             
-            for i in range(120):
+            for i in range(180):  # 15 menit timeout buat file gede
                 time.sleep(5)
                 status_res = requests.get(status_url, headers={"x-magnific-api-key": api_key})
                 status_data = status_res.json()
                 current_status = status_data.get("status")
                 
-                progress_bar.progress((i + 1) / 120)
+                progress_bar.progress((i + 1) / 180)
                 progress_text.text(f"Status: {current_status}")
                 
                 if current_status == "completed":
@@ -166,7 +175,7 @@ if st.button("🚀 Generate Video", type="primary", use_container_width=True):
                     st.success("Video berhasil dibuat!")
                     st.video(status_data["video_url"])
                     st.link_button("⬇️ Download Video", status_data["video_url"])
-                    st.info("💡 File di filebin.net auto hapus 7 hari. Download segera.")
+                    st.info("💡 File di transfer.sh auto hapus 1 hari. Download segera.")
                     break
                 elif current_status == "failed":
                     status.update(label="❌ Gagal", state="error")
