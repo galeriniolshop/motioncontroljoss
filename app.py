@@ -1,10 +1,11 @@
 import streamlit as st
 import requests
-import time
+import tempfile
+import os
 
-# =========================
+# ==================================
 # CONFIG
-# =========================
+# ==================================
 API_URL = "https://api.magnific.com/v1/ai/video/kling-v2-6-motion-control-std"
 
 st.set_page_config(
@@ -13,117 +14,141 @@ st.set_page_config(
     layout="centered"
 )
 
-st.title("🎬 Kling Motion Control Generator")
-st.caption("Generate AI motion control video using Magnific API")
+st.title("🎬 Kling Motion Control")
+st.caption("Upload image & video from your computer")
 
-# =========================
-# SIDEBAR
-# =========================
-st.sidebar.header("⚙️ API Settings")
-
-api_key = st.sidebar.text_input(
+# ==================================
+# API KEY
+# ==================================
+api_key = st.text_input(
     "Magnific API Key",
     type="password"
 )
 
-webhook_url = st.sidebar.text_input(
-    "Webhook URL (Optional)",
-    placeholder="https://your-webhook-url.com"
+# ==================================
+# UPLOAD FILE
+# ==================================
+uploaded_image = st.file_uploader(
+    "Upload Image",
+    type=["jpg", "jpeg", "png", "webp"]
 )
 
-# =========================
-# MAIN FORM
-# =========================
-with st.form("motion_control_form"):
+uploaded_video = st.file_uploader(
+    "Upload Reference Video",
+    type=["mp4", "mov", "webm"]
+)
 
-    image_url = st.text_input(
-        "Image URL",
-        placeholder="https://example.com/image.jpg"
-    )
+# ==================================
+# OPTIONS
+# ==================================
+prompt = st.text_area(
+    "Prompt",
+    placeholder="A cinematic camera movement with realistic motion..."
+)
 
-    video_url = st.text_input(
-        "Reference Video URL",
-        placeholder="https://example.com/video.mp4"
-    )
+character_orientation = st.selectbox(
+    "Character Orientation",
+    ["video", "horizontal", "vertical"]
+)
 
-    prompt = st.text_area(
-        "Prompt",
-        placeholder="A cinematic camera movement with realistic motion..."
-    )
+cfg_scale = st.slider(
+    "CFG Scale",
+    0.0,
+    1.0,
+    0.5,
+    0.1
+)
 
-    character_orientation = st.selectbox(
-        "Character Orientation",
-        ["video", "horizontal", "vertical"]
-    )
+# ==================================
+# PREVIEW
+# ==================================
+if uploaded_image:
+    st.image(uploaded_image, caption="Uploaded Image")
 
-    cfg_scale = st.slider(
-        "CFG Scale",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.5,
-        step=0.1
-    )
+if uploaded_video:
+    st.video(uploaded_video)
 
-    submit = st.form_submit_button("🚀 Generate Video")
-
-# =========================
-# GENERATE
-# =========================
-if submit:
+# ==================================
+# GENERATE BUTTON
+# ==================================
+if st.button("🚀 Generate Video"):
 
     if not api_key:
-        st.error("Please input Magnific API Key")
+        st.error("Please input API Key")
         st.stop()
 
-    if not image_url:
-        st.error("Please input Image URL")
+    if not uploaded_image:
+        st.error("Please upload image")
         st.stop()
 
-    if not video_url:
-        st.error("Please input Video URL")
+    if not uploaded_video:
+        st.error("Please upload video")
         st.stop()
 
-    payload = {
-        "image_url": image_url,
-        "video_url": video_url,
-        "webhook_url": webhook_url,
+    # ==================================
+    # SAVE TEMP FILES
+    # ==================================
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as img_tmp:
+        img_tmp.write(uploaded_image.read())
+        image_path = img_tmp.name
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as vid_tmp:
+        vid_tmp.write(uploaded_video.read())
+        video_path = vid_tmp.name
+
+    # ==================================
+    # REQUEST
+    # ==================================
+    headers = {
+        "x-magnific-api-key": api_key
+    }
+
+    files = {
+        "image": open(image_path, "rb"),
+        "video": open(video_path, "rb")
+    }
+
+    data = {
         "prompt": prompt,
         "character_orientation": character_orientation,
         "cfg_scale": cfg_scale
     }
 
-    headers = {
-        "x-magnific-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-
     with st.spinner("Generating video..."):
 
         try:
+
             response = requests.post(
                 API_URL,
-                json=payload,
                 headers=headers,
-                timeout=120
+                files=files,
+                data=data,
+                timeout=300
             )
 
             result = response.json()
 
-            st.success("Request sent successfully!")
+            st.success("Video generation started!")
 
-            st.subheader("📦 API Response")
+            st.subheader("API Response")
             st.json(result)
 
-            # Optional output
-            if "id" in result:
-                st.info(f"Generation ID: {result['id']}")
-
-            if "status" in result:
-                st.info(f"Status: {result['status']}")
-
-            # If API directly returns video URL
+            # ==================================
+            # SHOW RESULT VIDEO
+            # ==================================
             if "video_url" in result:
                 st.video(result["video_url"])
 
         except Exception as e:
             st.error(f"Error: {e}")
+
+        finally:
+            # cleanup
+            files["image"].close()
+            files["video"].close()
+
+            if os.path.exists(image_path):
+                os.remove(image_path)
+
+            if os.path.exists(video_path):
+                os.remove(video_path)
