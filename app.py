@@ -1,11 +1,9 @@
 import streamlit as st
 import requests
-import tempfile
-import os
 
-# ==================================
+# ==================================================
 # CONFIG
-# ==================================
+# ==================================================
 API_URL = "https://api.magnific.com/v1/ai/video/kling-v2-6-motion-control-std"
 
 st.set_page_config(
@@ -15,37 +13,43 @@ st.set_page_config(
 )
 
 st.title("🎬 Kling Motion Control")
-st.caption("Upload image & video from your computer")
+st.caption("Upload image & video from computer")
 
-# ==================================
+# ==================================================
 # API KEY
-# ==================================
+# ==================================================
 api_key = st.text_input(
     "Magnific API Key",
     type="password"
 )
 
-# ==================================
-# UPLOAD FILE
-# ==================================
+# ==================================================
+# UPLOAD IMAGE
+# ==================================================
 uploaded_image = st.file_uploader(
     "Upload Image",
     type=["jpg", "jpeg", "png", "webp"]
 )
 
+# ==================================================
+# UPLOAD VIDEO
+# ==================================================
 uploaded_video = st.file_uploader(
-    "Upload Reference Video",
+    "Upload Video",
     type=["mp4", "mov", "webm"]
 )
 
-# ==================================
-# OPTIONS
-# ==================================
+# ==================================================
+# PROMPT OPTIONAL
+# ==================================================
 prompt = st.text_area(
-    "Prompt",
-    placeholder="A cinematic camera movement with realistic motion..."
+    "Prompt (Optional)",
+    placeholder="A cinematic camera movement..."
 )
 
+# ==================================================
+# OPTIONS
+# ==================================================
 character_orientation = st.selectbox(
     "Character Orientation",
     ["video", "horizontal", "vertical"]
@@ -53,26 +57,48 @@ character_orientation = st.selectbox(
 
 cfg_scale = st.slider(
     "CFG Scale",
-    0.0,
-    1.0,
-    0.5,
-    0.1
+    min_value=0.0,
+    max_value=1.0,
+    value=0.5,
+    step=0.1
 )
 
-# ==================================
+# ==================================================
 # PREVIEW
-# ==================================
+# ==================================================
 if uploaded_image:
-    st.image(uploaded_image, caption="Uploaded Image")
+    st.image(uploaded_image)
 
 if uploaded_video:
     st.video(uploaded_video)
 
-# ==================================
+# ==================================================
+# UPLOAD TO CATBOX
+# ==================================================
+def upload_catbox(file):
+
+    response = requests.post(
+        "https://catbox.moe/user/api.php",
+        data={
+            "reqtype": "fileupload"
+        },
+        files={
+            "fileToUpload": (
+                file.name,
+                file,
+                file.type
+            )
+        }
+    )
+
+    return response.text.strip()
+
+# ==================================================
 # GENERATE BUTTON
-# ==================================
+# ==================================================
 if st.button("🚀 Generate Video"):
 
+    # VALIDATION
     if not api_key:
         st.error("Please input API Key")
         st.stop()
@@ -85,70 +111,74 @@ if st.button("🚀 Generate Video"):
         st.error("Please upload video")
         st.stop()
 
-    # ==================================
-    # SAVE TEMP FILES
-    # ==================================
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as img_tmp:
-        img_tmp.write(uploaded_image.read())
-        image_path = img_tmp.name
+    try:
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as vid_tmp:
-        vid_tmp.write(uploaded_video.read())
-        video_path = vid_tmp.name
+        # ==========================================
+        # UPLOAD FILES
+        # ==========================================
+        with st.spinner("Uploading files..."):
 
-    # ==================================
-    # REQUEST
-    # ==================================
-    headers = {
-        "x-magnific-api-key": api_key
-    }
+            image_url = upload_catbox(uploaded_image)
+            video_url = upload_catbox(uploaded_video)
 
-    files = {
-        "image": open(image_path, "rb"),
-        "video": open(video_path, "rb")
-    }
+        st.success("Files uploaded successfully!")
 
-    data = {
-        "prompt": prompt,
-        "character_orientation": character_orientation,
-        "cfg_scale": cfg_scale
-    }
+        st.write("Image URL:")
+        st.code(image_url)
 
-    with st.spinner("Generating video..."):
+        st.write("Video URL:")
+        st.code(video_url)
 
-        try:
+        # ==========================================
+        # PAYLOAD
+        # ==========================================
+        payload = {
+            "image_url": image_url,
+            "video_url": video_url,
+            "character_orientation": character_orientation,
+            "cfg_scale": cfg_scale
+        }
+
+        # prompt optional
+        if prompt.strip():
+            payload["prompt"] = prompt
+
+        # ==========================================
+        # HEADERS
+        # ==========================================
+        headers = {
+            "x-magnific-api-key": api_key,
+            "Content-Type": "application/json"
+        }
+
+        # ==========================================
+        # SEND REQUEST
+        # ==========================================
+        with st.spinner("Generating video..."):
 
             response = requests.post(
                 API_URL,
+                json=payload,
                 headers=headers,
-                files=files,
-                data=data,
                 timeout=300
             )
 
+        # ==========================================
+        # RESPONSE
+        # ==========================================
+        st.subheader("API Response")
+
+        try:
             result = response.json()
-
-            st.success("Video generation started!")
-
-            st.subheader("API Response")
             st.json(result)
 
-            # ==================================
-            # SHOW RESULT VIDEO
-            # ==================================
+            # tampilkan video jika ada
             if "video_url" in result:
+                st.success("Video generated successfully!")
                 st.video(result["video_url"])
 
-        except Exception as e:
-            st.error(f"Error: {e}")
+        except:
+            st.text(response.text)
 
-        finally:
-            # cleanup
-            files["image"].close()
-            files["video"].close()
-
-            if os.path.exists(image_path):
-                os.remove(image_path)
-
-            if os.path.exists(video_path):
-                os.remove(video_path)
+    except Exception as e:
+        st.error(f"Error: {e}")
